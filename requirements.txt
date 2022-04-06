@@ -1,0 +1,10 @@
+fastapi==0.75.1
+networkx==2.7.1
+nltk==3.7
+numpy==1.22.3
+scipy==1.8.0
+spacy==3.2.4
+torch==1.11.0
+tqdm==4.64.0
+uvicorn==0.17.6
+transformers==3.4.0
