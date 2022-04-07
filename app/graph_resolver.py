@@ -76,7 +76,7 @@ class GraphResolver:
 
     def __init__(self, cpnet_vocab_path: Union[Path, str],
                  pattern_path: Union[Path, str], pruned_graph_path: Union[Path, str],
-                 model_name_or_path: Union[Path, str] = "roberta-large"):
+                 model_name_or_path: Union[Path, str] = "roberta-large", device: str = "cuda"):
         """
         Initialize the Grounder.
         :param cpnet_vocab_path: the path to the CPNet vocabulary
@@ -94,8 +94,12 @@ class GraphResolver:
 
         self.tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
         self.model = RobertaForMaskedLMwithLoss.from_pretrained(model_name_or_path)
+        self.device = torch.device(device)
+        self.model.to(self.device)
+        self.model.eval()
 
         self.cpnet_vocab = None
+        self.cpnet_vocab_underscores = None
         self.concept2id = None
         self.id2relation = None
         self.id2concept = None
@@ -109,7 +113,7 @@ class GraphResolver:
         with open(self.cpnet_vocab_path, "r", encoding="utf8") as f:
             file_contents = [line.strip() for line in f]
         self.cpnet_vocab = [c.replace("_", " ") for c in file_contents]
-
+        self.cpnet_vocab_underscores = [l for l in file_contents]
         print("Loading pattern matcher...")
         with open(self.pattern_path, "r", encoding="utf8") as fin:
             all_patterns = json.load(fin)
@@ -239,7 +243,6 @@ class GraphResolver:
             # print(exact_match)
             assert len(exact_match) < 2
             mentioned_concepts.update(exact_match)
-
         return mentioned_concepts
 
     def ground_qa_pair(self, statement: str, answer: str):
@@ -295,7 +298,7 @@ class GraphResolver:
                 for t in c.split("_"):
                     if t in nltk_stopwords:
                         have_stop = True
-                if not have_stop and c in self.cpnet_vocab:
+                if not have_stop and c in self.cpnet_vocab_underscores:
                     prune_qc.append(c)
 
             ac = item["ac"]
@@ -309,7 +312,7 @@ class GraphResolver:
                 for t in c.split("_"):
                     if t not in nltk_stopwords:
                         all_stop = False
-                if not all_stop and c in self.cpnet_vocab:
+                if not all_stop and c in self.cpnet_vocab_underscores:
                     prune_ac.append(c)
 
             try:
@@ -404,7 +407,7 @@ class GraphResolver:
             for j, seq in enumerate(input_ids):
                 seq += [self.tokenizer.pad_token_id] * (max_len - len(seq))
                 input_ids[j] = seq
-            input_ids = torch.tensor(input_ids).cuda()  # [B, seqlen]
+            input_ids = torch.tensor(input_ids).to(self.device)  # [B, seqlen]
             mask = (input_ids != 1).long()  # [B, seq_len]
             # Get LM score
             with torch.no_grad():
@@ -442,7 +445,7 @@ class GraphResolver:
         adj, concepts = self.concepts2adj(schema_graph)
         return {'adj': adj, 'concepts': concepts, 'qmask': qmask, 'amask': amask, 'cid2score': cid2score}
 
-    def generate_adj_data_from_grounded_concepts__use_lm(self, grounded_path):
+    def generate_adj_data_from_grounded_concepts__use_lm(self, statement, grounded_statements):
         """
         This function will save
             (1) adjacency matrics (each in the form of a (R*N, N) coo sparse matrix)
@@ -457,31 +460,19 @@ class GraphResolver:
         cpnet_vocab_path: str
         output_path: str
         """
-        print(f'generating adj data for {grounded_path}...')
 
         qa_data = []
-        statement_path = grounded_path.replace('grounded', 'statement')
-        with open(grounded_path, 'r', encoding='utf-8') as fin_ground, open(statement_path, 'r',
-                                                                            encoding='utf-8') as fin_state:
-            lines_ground = fin_ground.readlines()
-            lines_state = fin_state.readlines()
-            assert len(lines_ground) % len(lines_state) == 0
-            n_choices = len(lines_ground) // len(lines_state)
-            for j, line in enumerate(lines_ground):
-                dic = json.loads(line)
-                q_ids = set(self.concept2id[c] for c in dic['qc'])
-                a_ids = set(self.concept2id[c] for c in dic['ac'])
-                q_ids = q_ids - a_ids
-                statement_obj = json.loads(lines_state[j // n_choices])
-                QAcontext = "{} {}.".format(statement_obj['question']['stem'], dic['ans'])
-                qa_data.append((q_ids, a_ids, QAcontext))
+        for grounded_statement in grounded_statements:
+            q_ids = set(self.concept2id[c] for c in grounded_statement['qc'])
+            a_ids = set(self.concept2id[c] for c in grounded_statement['ac'])
+            q_ids = q_ids - a_ids
+            qa_context = "{} {}.".format(statement['question']['stem'], grounded_statement['ans'])
+            qa_data.append((q_ids, a_ids, qa_context))
 
-        res1 = self.concepts_to_adj_matrices_2hop_all_pair__use_lm__part1(qa_data)
-
-        res2 = []
-        for j, _data in enumerate(res1):
-            if j % 100 == 0: print(j)
-            res2.append(self.concepts_to_adj_matrices_2hop_all_pair__use_lm__part2(_data))
-
-        res3 = self.concepts_to_adj_matrices_2hop_all_pair__use_lm__part3(res2)
-        return res3
+        result = []
+        for qa_item in qa_data:
+            qa_item_adj = self.concepts_to_adj_matrices_2hop_all_pair__use_lm__part1(qa_item)
+            qa_item_adj_scored = self.concepts_to_adj_matrices_2hop_all_pair__use_lm__part2(qa_item_adj)
+            final_item = self.concepts_to_adj_matrices_2hop_all_pair__use_lm__part3(qa_item_adj_scored)
+            result.append(final_item)
+        return result
