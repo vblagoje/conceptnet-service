@@ -443,7 +443,7 @@ class GraphResolver:
         qmask = arange < len(qc_ids)
         amask = (arange >= len(qc_ids)) & (arange < (len(qc_ids) + len(ac_ids)))
         adj, concepts = self.concepts2adj(schema_graph)
-        return {'adj': adj, 'concepts': concepts, 'qmask': qmask, 'amask': amask, 'cid2score': cid2score}
+        return {'adj': [i.tolist() for i in adj.nonzero()], 'concepts': concepts.tolist(), 'qmask': qmask.tolist(), 'amask': amask.tolist(), 'cid2score': [[i[0], float(i[1])] for i in cid2score.items()]}
 
     def generate_adj_data_from_grounded_concepts__use_lm(self, statement, grounded_statements):
         """

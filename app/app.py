@@ -34,7 +34,7 @@ async def resolve_csqa(request: Request):
     statement = graph_resolver.convert_qajson_to_entailment(qa_json=common_sense_qa_example, ans_pos=False)
     grouned_statements = graph_resolver.ground(statement)
     result = graph_resolver.generate_adj_data_from_grounded_concepts__use_lm(statement, grouned_statements)
-
+    return result
 
 @app.on_event("startup")
 def on_startup():
