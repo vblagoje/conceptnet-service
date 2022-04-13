@@ -139,7 +139,7 @@ class GraphResolver:
                 self.cpnet_simple.add_edge(u, v, weight=w)
         print("Graph Resolver started.")
 
-    def convert_qajson_to_entailment(self, qa_json: Dict, ans_pos: bool):
+    def convert_qajson_to_entailment(self, qa_json: Dict, ans_pos: bool = False):
         question_text = qa_json["question"]["stem"]
         choices = qa_json["question"]["choices"]
         for choice in choices:
@@ -443,7 +443,10 @@ class GraphResolver:
         qmask = arange < len(qc_ids)
         amask = (arange >= len(qc_ids)) & (arange < (len(qc_ids) + len(ac_ids)))
         adj, concepts = self.concepts2adj(schema_graph)
-        return {'adj': [i.tolist() for i in adj.nonzero()], 'concepts': concepts.tolist(), 'qmask': qmask.tolist(), 'amask': amask.tolist(), 'cid2score': [[i[0], float(i[1])] for i in cid2score.items()]}
+        return {'adj': [i.tolist() for i in adj.nonzero()],'adj_shape':[adj.shape[0], adj.shape[1]],
+                'concepts': concepts.tolist(),
+                'qmask': qmask.tolist(), 'amask': amask.tolist(),
+                'cid2score': [[i[0], i[1].item()] for i in cid2score.items()]}
 
     def generate_adj_data_from_grounded_concepts__use_lm(self, statement, grounded_statements):
         """
